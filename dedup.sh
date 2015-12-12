@@ -4,7 +4,7 @@
 #
 # FILE:         dedup.sh
 #
-# USAGE:        dedup.sh [-d] [-r] [-v] starting_directory
+# USAGE:        dedup.sh [OPTIONS] starting_directory
 #
 # DESCRIPTION:  Script for deduplicate of files and replace them with hardlinks.
 #               The default starting directory is the current directory.
@@ -15,7 +15,7 @@
 # REQUIREMENTS: /usr/bin/cmp
 #               /usr/bin/md5sum
 #
-# NOTES:        ---
+# NOTES:        See README.md
 #
 # AUTHOR:       Andreas Klamke
 #
