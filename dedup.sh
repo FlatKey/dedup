@@ -4,7 +4,7 @@
 #
 # FILE:         dedup.sh
 #
-# USAGE:        dedup.sh.sh [-d] [-r] [-v] starting_directory
+# USAGE:        dedup.sh [-d] [-r] [-v] starting_directory
 #
 # DESCRIPTION:  Script for deduplicate of files and replace them with hardlinks.
 #               The default starting directory is the current directory.
@@ -19,28 +19,37 @@
 #
 # AUTHOR:       Andreas Klamke
 #
-# VERSION:      0.1
+# VERSION:      1.0
 #
-# CREATED:      13.11.2015
+# CREATED:      12.12.2015
 #
 ####################################################################################
 
-# global defined variables
+# global defined variables with default values
 
 script_name=$(basename $0)
+backup=0
 dry_run=0
+interactive=0
 recursive=0
 verbose=0
+
+declare -A checksumarray
 
 # functions
 
 function usage {
+
+    # print usage manual
     echo -e "
             \rUsage: $script_name [OPTION]... DIRECTORY
             \rDeduplicate files and replace duplicates with hardlinks.
 
             \rMandatory arguments to long options are mandatory for short options too.
+            \r  -b, --backup        hard linked files will be backuped like file.~1~
             \r  -d, --dry-run       runs in dry-run mode
+            \r  -i, --interactive   prompt whether to remove duplicate files before
+            \r                      hard links will be created
             \r  -r, --recursive     recursive through subdirectories
             \r  -h, --help          display this help and exit
             \r  -v, --verbose       more details in output
@@ -52,44 +61,172 @@ function usage {
             "
 
     exit 0
+
 }
 
 function validate_directory {
+
+    # validates the given directory
     if [[ ! -d "$1" ]]
     then
         echo -e "\nERROR - $1 is not a existing directory!\n" 1>&2
         exit 1
     fi
+
 }
 
 function show_script_header {
-    echo -e "\n[ Deduplication startet... ]\n"
 
-    echo -e "Options:\n========"
-    if [[ $dry_run -eq 1 ]]
-    then
-        echo -e "- dry_run on"
-    fi
-    if [[ $recursive -eq 1 ]]
-    then
-        echo -e "- recursive on"
-    fi
+    # print script header
+    echo -e "\n| dedup.sh                 |"
+    echo -e "\r| @2015 by Andreas Klamke  |"
+
+}
+
+function show_script_options {
+
+    # print script options in verbose mode only
     if [[ $verbose -eq 1 ]]
-    then
+    then 
+        echo -e "\nOptions:\n========\n"
+        if [[ $backup -eq 1 ]]
+        then
+            echo -e "- backup on"
+        fi
+        if [[ $dry_run -eq 1 ]]
+        then
+            echo -e "- dry_run on"
+        fi
+        if [[ $interactive -eq 1 ]]
+        then
+            echo -e "- interactive on"
+        fi
+        if [[ $recursive -eq 1 ]]
+        then
+            echo -e "- recursive on"
+        fi
         echo -e "- verbose on"
     fi
+
 }
 
 function build_file_checksum_array {
-    echo -e "\nRetrieve file checksums:\n========================"
+
+    # print title in verbose mode only
+    if [[ $verbose -eq 1 ]]; then echo -e "\nRetrieve file checksums:\n========================\n"; fi
+
+    # find all files recursivly in given directory and associate them in an array with their md5sum
+    if [[ $recursive -eq 1 ]]
+    then
+        findcommand="find $1 -type f -size +0c"
+    else
+        findcommand="find $1 -maxdepth 0 -type f -size +0c"
+    fi
+    for file in $($findcommand 2>/dev/null)
+    do
+        checksumarray[$file]="$(md5sum $file|cut -d' ' -f1)"
+    done
+
+    # print md5sum - file associations in verbose mode only
+    if [[ $verbose -eq 1 ]]
+    then 
+        for checksum in "${!checksumarray[@]}"
+        do
+            echo "${checksumarray[$checksum]} - $checksum"
+        done
+    fi
+
+    # abort script if less than 2 files were found
+    if [[ ${#checksumarray[@]} -lt 2 ]]
+    then
+        echo -e "ERROR - found less than 2 files!\n"
+        exit 1
+    fi
+
+    # print indexed summary in verbose mode only
+    if [[ $verbose -eq 1 ]]; then echo -e "\n${#checksumarray[@]} files indexed."; fi
+
 }
 
 function process_deduplication {
-    echo -e "\nDeduplicate files:\n=================="
+
+    # the main deduplication logic of this script
+    echo -e "\nDeduplicate files:\n==================\n"
+
+    filecount="${#checksumarray[@]}"
+    keyarray=(${!checksumarray[@]})
+    hardlinkcount=0
+    freedbytes=0
+    while [[ $filecount -gt 1 ]]
+    do
+        actualfile="${keyarray[$filecount-1]}"
+        actualchecksum="${checksumarray[${keyarray[$filecount-1]}]}"
+
+        if [[ $actualchecksum != "###" ]]
+        then
+            for (( i=$filecount-1; $i > 0; i-=1 ))
+            do
+                comparefile="${keyarray[$i-1]}"
+                comparechecksum="${checksumarray[${keyarray[$i-1]}]}"
+
+                if [[ "$actualchecksum" == "$comparechecksum" ]]
+                then
+                    if [[ $(stat -c %i $actualfile) == $(stat -c %i $comparefile) ]]
+                    then
+                        if [[ $verbose -eq 1 ]]; then echo -e "$actualfile & $comparefile -> already hardlinked."; fi
+                    elif [[ $(stat -c %m $actualfile) != $(stat -c %m $comparefile) ]]
+                    then
+                        if [[ $verbose -eq 1 ]]; then echo -e "$actualfile & $comparefile -> equal md5 checksum, but not located on the same filesystem."; fi
+                    else
+                        echo -e "$actualfile & $comparefile -> equal md5 checksum, they will be compared byte-by-byte:"
+                        cmpmessage=$(cmp $actualfile $comparefile 2>&1)
+                        if [[ $? -eq 0 ]]
+                        then
+                            echo -n "Files match, they will be hard linked... "
+                                linkcommand="ln"
+                                if [[ $backup -eq 1 ]]
+                                then
+                                    linkcommand="$linkcommand --backup=numbered"
+                                fi
+                                if [[ $interactive -eq 1 ]]
+                                then
+                                    linkcommand="$linkcommand -i"
+                                else
+                                    linkcommand="$linkcommand -f"
+                                fi
+                                
+                                if [[ $dry_run -eq 0 ]]; then $($linkcommand $actualfile $comparefile); fi
+                                let hardlinkcount+=1
+                                let freedbytes="$(( $freedbytes + $(stat -c %s $comparefile) ))"
+                            echo -e "done\n"
+                        else
+                            echo -e "$cmpmessage"
+                            echo -e "Files not equal, nothing to do."
+                        fi
+                    fi
+                    checksumarray[${keyarray[$i-1]}]="###"
+                fi
+            done
+        fi
+
+        let filecount-=1
+        echo -ne "$(( ${#checksumarray[@]} - $filecount + 1 )) files checked.\r"
+    done
+    echo -e "\n"
+
+    # print deduplicate summary in verbose mode only
+    if [[ $verbose -eq 1 ]]; then echo -e "$hardlinkcount linkable duplicates found."; fi
+
 }
 
 function show_summary {
-    echo -e "\nSummary:\n========"
+
+    # print summary of script activities
+    echo -e "\nSummary:\n========\n"
+    echo -e "${#checksumarray[@]} files found and checked."
+    echo -e "$hardlinkcount linkable duplicates found."
+    echo -e "$freedbytes bytes of disk space freed.\n"
+
 }
 
 # main
@@ -101,15 +238,21 @@ then
     exit 1
 fi
 
-while [ $# -gt 0 ]
+while [[ $# -gt 0 ]]
 do
     case ${1,,} in
         -h|--help) 
             usage
             exit 0
             ;;
+        -b|--backup)
+            backup=1
+            ;;
         -d|--dry-run)
             dry_run=1
+            ;;
+        -i|--interactive)
+            interactive=1
             ;;
         -r|--recursive)
             recursive=1
@@ -124,7 +267,8 @@ do
         *)
             validate_directory $1
             show_script_header
-            build_file_checksum_array
+            show_script_options
+            build_file_checksum_array $1
             process_deduplication
             show_summary
             ;;
