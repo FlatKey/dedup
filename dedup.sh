@@ -20,7 +20,7 @@
 #
 # AUTHOR:       Andreas Klamke
 #
-# VERSION:      1.0.1
+# VERSION:      1.1.1
 #
 # CREATED:      12.12.2015
 #
@@ -62,6 +62,30 @@ function usage {
             "
 
     exit 0
+
+}
+
+function check_requirements {
+
+    # check if script requirements exist
+    command -v bc
+    if [[ ! $? -eq 0 ]]
+    then
+        echo -e "\nERROR - The required program bc does not exist!\n"
+        exit 1
+    fi
+    command -v cmp
+    if [[ ! $? -eq 0 ]]
+    then
+        echo -e "\nERROR - The required program cmp does not exist!\n"
+        exit 1
+    fi
+    command -v md5sum
+    if [[ ! $? -eq 0 ]]
+    then
+        echo -e "\nERROR - The required program md5sum does not exist!\n"
+        exit 1
+    fi
 
 }
 
@@ -284,6 +308,7 @@ do
             exit 1
             ;;
         *)
+            check_requirements
             validate_directory $1
             show_script_header
             show_script_options
