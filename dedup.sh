@@ -19,7 +19,7 @@
 #
 # AUTHOR:       Andreas Klamke
 #
-# VERSION:      1.0
+# VERSION:      1.0.1
 #
 # CREATED:      12.12.2015
 #
@@ -118,14 +118,15 @@ function build_file_checksum_array {
     # find all files recursivly in given directory and associate them in an array with their md5sum
     if [[ $recursive -eq 1 ]]
     then
-        findcommand="find $1 -type f -size +0c"
+        findcommand="find $1 -type f -size +0c -print0"
     else
-        findcommand="find $1 -maxdepth 0 -type f -size +0c"
+        findcommand="find $1 -maxdepth 1 -type f -size +0c -print0"
     fi
-    for file in $($findcommand 2>/dev/null)
+    while IFS= read -r -d '' file
     do
-        checksumarray[$file]="$(md5sum $file|cut -d' ' -f1)"
-    done
+        filestring=$(printf '%q\n' "$file")
+        checksumarray["'"$filestring"'"]=$( sh -c "md5sum $filestring|cut -d' ' -f1")
+    done < <($findcommand 2>/dev/null)
 
     # print md5sum - file associations in verbose mode only
     if [[ $verbose -eq 1 ]]
@@ -154,32 +155,32 @@ function process_deduplication {
     echo -e "\nDeduplicate files:\n==================\n"
 
     filecount="${#checksumarray[@]}"
-    keyarray=(${!checksumarray[@]})
+    keyarray=("${!checksumarray[@]}")
     hardlinkcount=0
     freedbytes=0
     while [[ $filecount -gt 1 ]]
     do
-        actualfile="${keyarray[$filecount-1]}"
+        actualfile=$(echo "${keyarray[$filecount-1]}"| sed "s/^.//" | sed "s/.$//")
         actualchecksum="${checksumarray[${keyarray[$filecount-1]}]}"
 
         if [[ $actualchecksum != "###" ]]
         then
             for (( i=$filecount-1; $i > 0; i-=1 ))
             do
-                comparefile="${keyarray[$i-1]}"
+                comparefile=$(echo "${keyarray[$i-1]}"| sed "s/^'*//g" | sed "s/'*$//g")
                 comparechecksum="${checksumarray[${keyarray[$i-1]}]}"
 
                 if [[ "$actualchecksum" == "$comparechecksum" ]]
                 then
-                    if [[ $(stat -c %i $actualfile) == $(stat -c %i $comparefile) ]]
+                    if [[ $(stat -c %i "$actualfile") == $(stat -c %i "$comparefile") ]]
                     then
                         if [[ $verbose -eq 1 ]]; then echo -e "$actualfile & $comparefile -> already hardlinked."; fi
-                    elif [[ $(stat -c %m $actualfile) != $(stat -c %m $comparefile) ]]
+                    elif [[ $(stat -c %m "$actualfile") != $(stat -c %m "$comparefile") ]]
                     then
                         if [[ $verbose -eq 1 ]]; then echo -e "$actualfile & $comparefile -> equal md5 checksum, but not located on the same filesystem."; fi
                     else
                         echo -e "$actualfile & $comparefile -> equal md5 checksum, they will be compared byte-by-byte:"
-                        cmpmessage=$(cmp $actualfile $comparefile 2>&1)
+                        cmpmessage=$(cmp "$actualfile" "$comparefile" 2>&1)
                         if [[ $? -eq 0 ]]
                         then
                             echo -n "Files match, they will be hard linked... "
@@ -195,9 +196,9 @@ function process_deduplication {
                                     linkcommand="$linkcommand -f"
                                 fi
                                 
-                                if [[ $dry_run -eq 0 ]]; then $($linkcommand $actualfile $comparefile); fi
+                                if [[ $dry_run -eq 0 ]]; then $($linkcommand "$actualfile" "$comparefile"); fi
                                 let hardlinkcount+=1
-                                let freedbytes="$(( $freedbytes + $(stat -c %s $comparefile) ))"
+                                let freedbytes="$(( $freedbytes + $(stat -c %s "$comparefile") ))"
                             echo -e "done\n"
                         else
                             echo -e "$cmpmessage"
