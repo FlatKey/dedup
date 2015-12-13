@@ -12,8 +12,9 @@
 #
 # OPTIONS:      See function ’usage’ below.
 #
-# REQUIREMENTS: /usr/bin/cmp
-#               /usr/bin/md5sum
+# REQUIREMENTS: bc
+#               cmp
+#               md5sum
 #
 # NOTES:        See README.md
 #
@@ -222,11 +223,28 @@ function process_deduplication {
 
 function show_summary {
 
+    # calculate scale unit for freed disk space
+    if [[ $freedbytes -ge 1073741824 ]]
+    then
+        freedbytes=$(bc <<< "scale=2; $freedbytes / 1073741824" )
+        scaleunit="GiB"
+    elif [[ $freedbytes -ge 1048576 ]]
+    then
+        freedbytes=$(bc <<< "scale=2; $freedbytes / 1048576" )
+        scaleunit="MiB"
+    elif [[ $freedbytes -ge 1024 ]]
+    then
+        freedbytes=$(bc <<< "sclae=2; $freedbytes / 1024" )
+        scaleunit="KiB"
+    else
+        scaleunit="bytes"
+    fi
+
     # print summary of script activities
     echo -e "\nSummary:\n========\n"
     echo -e "${#checksumarray[@]} files found and checked."
     echo -e "$hardlinkcount linkable duplicates found."
-    echo -e "$freedbytes bytes of disk space freed.\n"
+    echo -e "$freedbytes $scaleunit of disk space freed.\n"
 
 }
 
