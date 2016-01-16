@@ -20,9 +20,11 @@
 #
 # AUTHOR:       Andreas Klamke
 #
-# VERSION:      1.1.1
+# VERSION:      1.1.2
 #
 # CREATED:      12.12.2015
+#
+# UPDATED:      16.01.2016
 #
 ####################################################################################
 
@@ -138,7 +140,7 @@ function show_script_options {
 function build_file_checksum_array {
 
     # print title in verbose mode only
-    if [[ $verbose -eq 1 ]]; then echo -e "\nRetrieve file checksums:\n========================\n"; fi
+    if [[ $verbose -eq 1 ]]; then echo -e "\nRetrieve file checksums:\n========================\n"; else echo -e "\nPreparing deduplication process...\n"; fi
 
     # find all files recursivly in given directory and associate them in an array with their md5sum
     if [[ $recursive -eq 1 ]]
@@ -151,16 +153,13 @@ function build_file_checksum_array {
     do
         filestring=$(printf '%q\n' "$file")
         checksumarray["'"$filestring"'"]=$( sh -c "md5sum $filestring|cut -d' ' -f1")
-    done < <($findcommand 2>/dev/null)
 
-    # print md5sum - file associations in verbose mode only
-    if [[ $verbose -eq 1 ]]
-    then 
-        for checksum in "${!checksumarray[@]}"
-        do
-            echo "${checksumarray[$checksum]} - $checksum"
-        done
-    fi
+        # print md5sum - file associations in verbose mode only
+        if [[ $verbose -eq 1 ]]
+        then
+            echo "${checksumarray["'"$filestring"'"]} - '$filestring'"
+        fi
+    done < <($findcommand 2>/dev/null)
 
     # abort script if less than 2 files were found
     if [[ ${#checksumarray[@]} -lt 2 ]]
