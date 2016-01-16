@@ -68,19 +68,19 @@ function usage {
 function check_requirements {
 
     # check if script requirements exist
-    command -v bc
+    command -v bc &>/dev/null
     if [[ ! $? -eq 0 ]]
     then
         echo -e "\nERROR - The required program bc does not exist!\n"
         exit 1
     fi
-    command -v cmp
+    command -v cmp &>/dev/null
     if [[ ! $? -eq 0 ]]
     then
         echo -e "\nERROR - The required program cmp does not exist!\n"
         exit 1
     fi
-    command -v md5sum
+    command -v md5sum &>/dev/null
     if [[ ! $? -eq 0 ]]
     then
         echo -e "\nERROR - The required program md5sum does not exist!\n"
