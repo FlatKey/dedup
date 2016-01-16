@@ -14,13 +14,14 @@
 #
 # REQUIREMENTS: bc
 #               cmp
+#               date
 #               md5sum
 #
 # NOTES:        See README.md
 #
 # AUTHOR:       Andreas Klamke
 #
-# VERSION:      1.1.2
+# VERSION:      1.1.3
 #
 # CREATED:      12.12.2015
 #
@@ -82,6 +83,12 @@ function check_requirements {
         echo -e "\nERROR - The required program cmp does not exist!\n"
         exit 1
     fi
+    command -v date &>/dev/null
+    if [[ ! $? -eq 0 ]]
+    then
+        echo -e "\nERROR - The required program date does not exist!\n"
+        exit 1
+    fi
     command -v md5sum &>/dev/null
     if [[ ! $? -eq 0 ]]
     then
@@ -139,6 +146,9 @@ function show_script_options {
 
 function build_file_checksum_array {
 
+    # take time for process duration measurement
+    time_checksum_build_started=$(date --date "now" "+%s")
+
     # print title in verbose mode only
     if [[ $verbose -eq 1 ]]; then echo -e "\nRetrieve file checksums:\n========================\n"; else echo -e "\nPreparing deduplication process...\n"; fi
 
@@ -174,6 +184,9 @@ function build_file_checksum_array {
 }
 
 function process_deduplication {
+
+    # take time for process duration measurement
+    time_deduplication_started=$(date --date "now" "+%s")
 
     # the main deduplication logic of this script
     echo -e "\nDeduplicate files:\n==================\n"
@@ -246,6 +259,13 @@ function process_deduplication {
 
 function show_summary {
 
+    # take time for process duration measurement
+    time_process_finished=$(date --date "now" "+%s")
+
+    # calculate needed time for processing
+    time_checksum_build=$(($time_deduplication_started - $time_checksum_build_started))
+    time_deduplication=$(($time_process_finished - $time_deduplication_started))
+
     # calculate scale unit for freed disk space
     if [[ $freedbytes -ge 1073741824 ]]
     then
@@ -265,6 +285,8 @@ function show_summary {
 
     # print summary of script activities
     echo -e "\nSummary:\n========\n"
+    echo -e "$time_checksum_build seconds needed to retrieve all file checksums."
+    echo -e "$time_deduplication seconds needed for the deduplication process."
     echo -e "${#checksumarray[@]} files found and checked."
     echo -e "$hardlinkcount linkable duplicates found."
     echo -e "$freedbytes $scaleunit of disk space freed.\n"
