@@ -4,10 +4,10 @@
 #
 # FILE:         dedup.sh
 #
-# USAGE:        dedup.sh [OPTION]... DIRECTORY...
+# USAGE:        dedup.sh [OPTION]... [DIRECTORY]...
 #
 # DESCRIPTION:  Script for deduplicate of files and replace them with hardlinks.
-#               The default starting directory is the current directory.
+#               The default directory is the current directory.
 #               Don’t work across filesystems.
 #
 # OPTIONS:      See function ’usage’ below.
@@ -21,7 +21,7 @@
 #
 # AUTHOR:       Andreas Klamke
 #
-# VERSION:      1.1.4
+# VERSION:      1.1.5
 #
 # CREATED:      12.12.2015
 #
@@ -46,7 +46,7 @@ function usage {
 
     # print usage manual
     echo -e "
-            \rUsage: $script_name [OPTION]... DIRECTORY...
+            \rUsage: $script_name [OPTION]... [DIRECTORY]...
             \rDeduplicate files and replace duplicates with hardlinks.
 
             \rMandatory arguments to long options are mandatory for short options too.
@@ -58,7 +58,7 @@ function usage {
             \r  -h, --help          display this help and exit
             \r  -v, --verbose       more details in output
 
-            \rIf DIRECTORY is '-' or missing, current directory is used.
+            \rIf DIRECTORY is missing, current directory is used.
             \rExit status is 0 if no error occures, otherwise exit status is 1.
 
             \rReport bugs on: https://github.com/FlatKey/dedup
@@ -303,6 +303,21 @@ then
     echo -e "$script_name: missing operand after '$script_name'"
     echo -e "$script_name: Try '$script_name --help' for more information."
     exit 1
+fi
+
+# test if a directory argument exist
+for argument in $@
+do
+    if [[ ! $argument == "-"* ]]
+    then
+        directory_argument_exists=1
+    fi
+done
+
+# set current directory if no directory argument exist
+if [[ ! $directory_argument_exists -eq 1 ]]
+then
+    set -- "$@" "$(pwd)"
 fi
 
 while [[ $# -gt 0 ]]
