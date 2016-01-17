@@ -21,11 +21,11 @@
 #
 # AUTHOR:       Andreas Klamke
 #
-# VERSION:      1.1.5
+# VERSION:      2.0.0
 #
 # CREATED:      12.12.2015
 #
-# UPDATED:      17.01.2016
+# UPDATED:      18.01.2016
 #
 ####################################################################################
 
@@ -194,60 +194,61 @@ function process_deduplication {
     # the main deduplication logic of this script
     echo -e "\nDeduplicate files:\n==================\n"
 
+    # sort array indexes by checksums to avoid the exponential problem with one file to all file comparision
+    IFS=$'\n'
+    keyarray=($(
+        for key in "${!checksumarray[@]}"
+        do
+            printf '%s:%s\n' "$key" "${checksumarray[$key]}"
+        done | sort -t : -k 2 | sed 's/:.*//'))
+    unset IFS
+
     filecount="${#checksumarray[@]}"
-    keyarray=("${!checksumarray[@]}")
     hardlinkcount=0
     freedbytes=0
     while [[ $filecount -gt 1 ]]
     do
+        # needed to compare the actuale file only with the next file as consequence of the sorted indexes
         actualfile=$(echo "${keyarray[$filecount-1]}"| sed "s/^.//" | sed "s/.$//")
         actualchecksum="${checksumarray[${keyarray[$filecount-1]}]}"
+        comparefile=$(echo "${keyarray[$filecount-2]}"| sed "s/^.//" | sed "s/.$//")
+        comparechecksum="${checksumarray[${keyarray[$filecount-2]}]}"
 
-        if [[ $actualchecksum != "###" ]]
+        if [[ "$actualchecksum" == "$comparechecksum" ]]
         then
-            for (( i=$filecount-1; $i > 0; i-=1 ))
-            do
-                comparefile=$(echo "${keyarray[$i-1]}"| sed "s/^'*//g" | sed "s/'*$//g")
-                comparechecksum="${checksumarray[${keyarray[$i-1]}]}"
-
-                if [[ "$actualchecksum" == "$comparechecksum" ]]
+            if [[ $(stat -c %i "$actualfile") == $(stat -c %i "$comparefile") ]]
+            then
+                if [[ $verbose -eq 1 ]]; then echo -e "$actualfile & $comparefile -> already hardlinked."; fi
+            elif [[ $(stat -c %m "$actualfile") != $(stat -c %m "$comparefile") ]]
+            then
+                if [[ $verbose -eq 1 ]]; then echo -e "$actualfile & $comparefile -> equal md5 checksum, but not located on the same filesystem."; fi
+            else
+                echo -e "$actualfile & $comparefile -> equal md5 checksum, they will be compared byte-by-byte:"
+                cmpmessage=$(cmp "$actualfile" "$comparefile" 2>&1)
+                if [[ $? -eq 0 ]]
                 then
-                    if [[ $(stat -c %i "$actualfile") == $(stat -c %i "$comparefile") ]]
+                    echo -n "Files match, they will be hard linked... "
+                    linkcommand="ln"
+                    if [[ $backup -eq 1 ]]
                     then
-                        if [[ $verbose -eq 1 ]]; then echo -e "$actualfile & $comparefile -> already hardlinked."; fi
-                    elif [[ $(stat -c %m "$actualfile") != $(stat -c %m "$comparefile") ]]
-                    then
-                        if [[ $verbose -eq 1 ]]; then echo -e "$actualfile & $comparefile -> equal md5 checksum, but not located on the same filesystem."; fi
-                    else
-                        echo -e "$actualfile & $comparefile -> equal md5 checksum, they will be compared byte-by-byte:"
-                        cmpmessage=$(cmp "$actualfile" "$comparefile" 2>&1)
-                        if [[ $? -eq 0 ]]
-                        then
-                            echo -n "Files match, they will be hard linked... "
-                                linkcommand="ln"
-                                if [[ $backup -eq 1 ]]
-                                then
-                                    linkcommand="$linkcommand --backup=numbered"
-                                fi
-                                if [[ $interactive -eq 1 ]]
-                                then
-                                    linkcommand="$linkcommand -i"
-                                else
-                                    linkcommand="$linkcommand -f"
-                                fi
-                                
-                                if [[ $dry_run -eq 0 ]]; then $($linkcommand "$actualfile" "$comparefile"); fi
-                                let hardlinkcount+=1
-                                let freedbytes="$(( $freedbytes + $(stat -c %s "$comparefile") ))"
-                            echo -e "done\n"
-                        else
-                            echo -e "$cmpmessage"
-                            echo -e "Files not equal, nothing to do."
-                        fi
+                        linkcommand="$linkcommand --backup=numbered"
                     fi
-                    checksumarray[${keyarray[$i-1]}]="###"
+                    if [[ $interactive -eq 1 ]]
+                    then
+                        linkcommand="$linkcommand -i"
+                    else
+                        linkcommand="$linkcommand -f"
+                    fi
+
+                    if [[ $dry_run -eq 0 ]]; then $($linkcommand "$actualfile" "$comparefile"); fi
+                    let hardlinkcount+=1
+                    let freedbytes="$(( $freedbytes + $(stat -c %s "$comparefile") ))"
+                    echo -e "done\n"
+                else
+                    echo -e "$cmpmessage"
+                    echo -e "Files not equal, nothing to do."
                 fi
-            done
+            fi
         fi
 
         let filecount-=1
