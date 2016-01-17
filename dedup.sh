@@ -4,7 +4,7 @@
 #
 # FILE:         dedup.sh
 #
-# USAGE:        dedup.sh [OPTIONS] starting_directory
+# USAGE:        dedup.sh [OPTION]... DIRECTORY...
 #
 # DESCRIPTION:  Script for deduplicate of files and replace them with hardlinks.
 #               The default starting directory is the current directory.
@@ -21,11 +21,11 @@
 #
 # AUTHOR:       Andreas Klamke
 #
-# VERSION:      1.1.3
+# VERSION:      1.1.4
 #
 # CREATED:      12.12.2015
 #
-# UPDATED:      16.01.2016
+# UPDATED:      17.01.2016
 #
 ####################################################################################
 
@@ -46,7 +46,7 @@ function usage {
 
     # print usage manual
     echo -e "
-            \rUsage: $script_name [OPTION]... DIRECTORY
+            \rUsage: $script_name [OPTION]... DIRECTORY...
             \rDeduplicate files and replace duplicates with hardlinks.
 
             \rMandatory arguments to long options are mandatory for short options too.
@@ -100,12 +100,15 @@ function check_requirements {
 
 function validate_directory {
 
-    # validates the given directory
-    if [[ ! -d "$1" ]]
-    then
-        echo -e "\nERROR - $1 is not a existing directory!\n" 1>&2
-        exit 1
-    fi
+    # validates the given directory arguments
+    for directory in $@
+    do
+        if [[ ! -d "$directory" ]]
+        then
+            echo -e "\nERROR - $directory is not a existing directory!\n" 1>&2
+            exit 1
+        fi
+    done
 
 }
 
@@ -152,12 +155,12 @@ function build_file_checksum_array {
     # print title in verbose mode only
     if [[ $verbose -eq 1 ]]; then echo -e "\nRetrieve file checksums:\n========================\n"; else echo -e "\nPreparing deduplication process...\n"; fi
 
-    # find all files recursivly in given directory and associate them in an array with their md5sum
+    # find all files recursivly in given directory arguments and associate them in an array with their md5sum
     if [[ $recursive -eq 1 ]]
     then
-        findcommand="find $1 -type f -size +0c -print0"
+        findcommand="find $@ -type f -size +0c -print0"
     else
-        findcommand="find $1 -maxdepth 1 -type f -size +0c -print0"
+        findcommand="find $@ -maxdepth 1 -type f -size +0c -print0"
     fi
     while IFS= read -r -d '' file
     do
@@ -329,11 +332,19 @@ do
             exit 1
             ;;
         *)
+            if [[ $# -gt 1 ]]
+            then
+                directories="$@"
+                shift $#
+            else
+                directories="$1"
+            fi
+
             check_requirements
-            validate_directory $1
+            validate_directory $directories
             show_script_header
             show_script_options
-            build_file_checksum_array $1
+            build_file_checksum_array $directories
             process_deduplication
             show_summary
             ;;
