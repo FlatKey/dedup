@@ -21,7 +21,7 @@
 #
 # AUTHOR:       Andreas Klamke
 #
-# VERSION:      2.0.0
+# VERSION:      2.0.1
 #
 # CREATED:      12.12.2015
 #
@@ -101,7 +101,7 @@ function check_requirements {
 function validate_directory {
 
     # validates the given directory arguments
-    for directory in $@
+    for directory in "$@"
     do
         if [[ ! -d "$directory" ]]
         then
@@ -158,9 +158,9 @@ function build_file_checksum_array {
     # find all files recursivly in given directory arguments and associate them in an array with their md5sum
     if [[ $recursive -eq 1 ]]
     then
-        findcommand="find $@ -type f -size +0c -print0"
+        findcommand="find '$@' -type f -size +0c -print0"
     else
-        findcommand="find $@ -maxdepth 1 -type f -size +0c -print0"
+        findcommand="find '$@' -maxdepth 1 -type f -size +0c -print0"
     fi
     while IFS= read -r -d '' file
     do
@@ -172,7 +172,7 @@ function build_file_checksum_array {
         then
             echo "${checksumarray["'"$filestring"'"]} - '$filestring'"
         fi
-    done < <($findcommand 2>/dev/null)
+    done < <(bash -c "$findcommand 2>/dev/null")
 
     # abort script if less than 2 files were found
     if [[ ${#checksumarray[@]} -lt 2 ]]
@@ -216,15 +216,15 @@ function process_deduplication {
 
         if [[ "$actualchecksum" == "$comparechecksum" ]]
         then
-            if [[ $(stat -c %i "$actualfile") == $(stat -c %i "$comparefile") ]]
+            if [[ $(bash -c "stat -c %i $actualfile") == $(bash -c "stat -c %i $comparefile") ]]
             then
                 if [[ $verbose -eq 1 ]]; then echo -e "$actualfile & $comparefile -> already hardlinked."; fi
-            elif [[ $(stat -c %m "$actualfile") != $(stat -c %m "$comparefile") ]]
+            elif [[ $(bash -c "stat -c %m $actualfile") != $(bash -c "stat -c %m $comparefile") ]]
             then
                 if [[ $verbose -eq 1 ]]; then echo -e "$actualfile & $comparefile -> equal md5 checksum, but not located on the same filesystem."; fi
             else
                 echo -e "$actualfile & $comparefile -> equal md5 checksum, they will be compared byte-by-byte:"
-                cmpmessage=$(cmp "$actualfile" "$comparefile" 2>&1)
+                cmpmessage=$(bash -c "cmp $actualfile $comparefile 2>&1")
                 if [[ $? -eq 0 ]]
                 then
                     echo -n "Files match, they will be hard linked... "
@@ -240,9 +240,9 @@ function process_deduplication {
                         linkcommand="$linkcommand -f"
                     fi
 
-                    if [[ $dry_run -eq 0 ]]; then $($linkcommand "$actualfile" "$comparefile"); fi
+                    if [[ $dry_run -eq 0 ]]; then $(bash -c "$linkcommand $actualfile $comparefile"); fi
                     let hardlinkcount+=1
-                    let freedbytes="$(( $freedbytes + $(stat -c %s "$comparefile") ))"
+                    let freedbytes="$(( $freedbytes + $(bash -c "stat -c %s $comparefile") ))"
                     echo -e "done\n"
                 else
                     echo -e "$cmpmessage"
@@ -307,8 +307,9 @@ then
 fi
 
 # test if a directory argument exist
-for argument in $@
+for argument in "$@"
 do
+echo $argument
     if [[ ! $argument == "-"* ]]
     then
         directory_argument_exists=1
@@ -357,10 +358,10 @@ do
             fi
 
             check_requirements
-            validate_directory $directories
+            validate_directory "$directories"
             show_script_header
             show_script_options
-            build_file_checksum_array $directories
+            build_file_checksum_array "$directories"
             process_deduplication
             show_summary
             ;;
