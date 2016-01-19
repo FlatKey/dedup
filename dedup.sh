@@ -21,7 +21,7 @@
 #
 # AUTHOR:       Andreas Klamke
 #
-# VERSION:      2.0.1
+# VERSION:      2.0.2
 #
 # CREATED:      12.12.2015
 #
@@ -165,12 +165,19 @@ function build_file_checksum_array {
     while IFS= read -r -d '' file
     do
         filestring=$(printf '%q\n' "$file")
-        checksumarray["'"$filestring"'"]=$( sh -c "md5sum $filestring|cut -d' ' -f1")
 
-        # print md5sum - file associations in verbose mode only
-        if [[ $verbose -eq 1 ]]
+        # check if checksum can be retrieved, otherwise ignore file
+        checksum=$(bash -c "md5sum $filestring" 2>&1)
+        if [[ "$?" -eq 0 ]]
         then
-            echo "${checksumarray["'"$filestring"'"]} - '$filestring'"
+            checksum=$(bash -c "echo $checksum|cut -d' ' -f1")
+            checksumarray["'"$filestring"'"]="$checksum"
+
+            # print md5sum - file associations in verbose mode only
+            if [[ $verbose -eq 1 ]]
+            then
+                echo "${checksumarray["'"$filestring"'"]} - '$filestring'"
+            fi
         fi
     done < <(bash -c "$findcommand 2>/dev/null")
 
@@ -204,7 +211,10 @@ function process_deduplication {
     unset IFS
 
     filecount="${#checksumarray[@]}"
+    probablyhardlinkablecount=0
+    hardlinkablecount=0
     hardlinkcount=0
+    freeablebytes=0
     freedbytes=0
     while [[ $filecount -gt 1 ]]
     do
@@ -222,6 +232,7 @@ function process_deduplication {
             elif [[ $(bash -c "stat -c %m $actualfile") != $(bash -c "stat -c %m $comparefile") ]]
             then
                 if [[ $verbose -eq 1 ]]; then echo -e "$actualfile & $comparefile -> equal md5 checksum, but not located on the same filesystem."; fi
+                probablyhardlinkablecount+=1
             else
                 echo -e "$actualfile & $comparefile -> equal md5 checksum, they will be compared byte-by-byte:"
                 cmpmessage=$(bash -c "cmp $actualfile $comparefile 2>&1")
@@ -229,10 +240,12 @@ function process_deduplication {
                 then
                     echo -n "Files match, they will be hard linked... "
                     linkcommand="ln"
+
                     if [[ $backup -eq 1 ]]
                     then
                         linkcommand="$linkcommand --backup=numbered"
                     fi
+
                     if [[ $interactive -eq 1 ]]
                     then
                         linkcommand="$linkcommand -i"
@@ -240,10 +253,19 @@ function process_deduplication {
                         linkcommand="$linkcommand -f"
                     fi
 
-                    if [[ $dry_run -eq 0 ]]; then $(bash -c "$linkcommand $actualfile $comparefile"); fi
-                    let hardlinkcount+=1
-                    let freedbytes="$(( $freedbytes + $(bash -c "stat -c %s $comparefile") ))"
-                    echo -e "done\n"
+                    if [[ $dry_run -eq 0 ]]; then $(bash -c "$linkcommand $actualfile $comparefile"); linkerror=$?; fi
+
+                    if [[ $linkerror -eq 0 ]]
+                    then
+                        let freedbytes="$(( $freedbytes + $(bash -c "stat -c %s $comparefile") ))"
+                        let hardlinkcount+=1
+                        echo -e "done\n"
+                    else
+                        echo -e "failed\n"
+                    fi
+
+                    let freeablebytes="$(( $freeablebytes + $(bash -c "stat -c %s $comparefile") ))"
+                    let hardlinkablecount+=1
                 else
                     echo -e "$cmpmessage"
                     echo -e "Files not equal, nothing to do."
@@ -270,21 +292,38 @@ function show_summary {
     time_checksum_build=$(($time_deduplication_started - $time_checksum_build_started))
     time_deduplication=$(($time_process_finished - $time_deduplication_started))
 
+    # calculate scale unit for freeable disk space
+    if [[ $freeablebytes -ge 1073741824 ]]
+    then
+        freeablebytes=$(bc <<< "scale=2; $freeablebytes / 1073741824" )
+        freeablescaleunit="GiB"
+    elif [[ $freeablebytes -ge 1048576 ]]
+    then
+        freeablebytes=$(bc <<< "scale=2; $freeablebytes / 1048576" )
+        freeablescaleunit="MiB"
+    elif [[ $freeablebytes -ge 1024 ]]
+    then
+        freeablebytes=$(bc <<< "sclae=2; $freeablebytes / 1024" )
+        freeablescaleunit="KiB"
+    else
+        freeablescaleunit="bytes"
+    fi
+
     # calculate scale unit for freed disk space
     if [[ $freedbytes -ge 1073741824 ]]
     then
         freedbytes=$(bc <<< "scale=2; $freedbytes / 1073741824" )
-        scaleunit="GiB"
+        freedscaleunit="GiB"
     elif [[ $freedbytes -ge 1048576 ]]
     then
         freedbytes=$(bc <<< "scale=2; $freedbytes / 1048576" )
-        scaleunit="MiB"
+        freedscaleunit="MiB"
     elif [[ $freedbytes -ge 1024 ]]
     then
         freedbytes=$(bc <<< "sclae=2; $freedbytes / 1024" )
-        scaleunit="KiB"
+        freedscaleunit="KiB"
     else
-        scaleunit="bytes"
+        freedscaleunit="bytes"
     fi
 
     # print summary of script activities
@@ -292,8 +331,11 @@ function show_summary {
     echo -e "$time_checksum_build seconds needed to retrieve all file checksums."
     echo -e "$time_deduplication seconds needed for the deduplication process."
     echo -e "${#checksumarray[@]} files found and checked."
-    echo -e "$hardlinkcount linkable duplicates found."
-    echo -e "$freedbytes $scaleunit of disk space freed.\n"
+    echo -e "$probablyhardlinkablecount probably duplicates found on different filesystems."
+    echo -e "$hardlinkablecount duplicates found."
+    echo -en "$hardlinkcount files deduplicated."; if [[ $interactive -eq 1 ]]; then echo -e " (if all interactive decisions were 'yes'."; else echo -e ""; fi
+    echo -e "$freeablebytes $freeablescaleunit of disk space probably freeable."
+    echo -en "$freedbytes $freedscaleunit of disk space freed."; if [[ $interactive -eq 1 ]]; then echo -e " (if all interactive decisions were 'yes'.\n"; else echo -e "\n"; fi
 
 }
 
@@ -309,7 +351,6 @@ fi
 # test if a directory argument exist
 for argument in "$@"
 do
-echo $argument
     if [[ ! $argument == "-"* ]]
     then
         directory_argument_exists=1
